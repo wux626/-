@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+{% if user %}
+    <div class="card">
+        <h2 class="card-title">欢迎回来，{{ user.username }}！</h2>
+        <ul class="info-list">
+            <li><span class="info-label">用户名：</span>{{ user.username }}</li>
+            <li><span class="info-label">密码：</span>{{ user.password }}</li>
+            <li><span class="info-label">邮箱：</span>{{ user.email }}</li>
+            <li><span class="info-label">手机：</span>{{ user.phone }}</li>
+            <li><span class="info-label">角色：</span>{{ user.role }}</li>
+            <li><span class="info-label">余额：</span>{{ user.balance }}</li>
+        </ul>
+        <a href="/logout" class="btn btn-primary">退出登录</a>
+    </div>
+
+    <!-- 搜索功能 -->
+    <div class="card">
+        <h2 class="card-title">搜索用户</h2>
+        <form method="get" action="/search" class="form">
+            <div class="form-group">
+                <label for="keyword">关键词</label>
+                <input type="text" id="keyword" name="keyword" class="form-input" placeholder="搜索用户（用户名/邮箱）" required>
+            </div>
+            <button type="submit" class="btn btn-primary">搜索</button>
+        </form>
+    </div>
+{% else %}
+    <div class="card card-center">
+        <h2 class="card-title">请先登录</h2>
+        <p class="card-text">您尚未登录，请先登录以访问用户信息。</p>
+        <a href="/login" class="btn btn-primary">前往登录</a>
+    </div>
+{% endif %}
+{% endblock %}
