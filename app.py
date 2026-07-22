@@ -107,13 +107,19 @@ def init_db():
         username TEXT UNIQUE NOT NULL,
         password TEXT NOT NULL,
         email TEXT,
-        phone TEXT
+        phone TEXT,
+        balance REAL DEFAULT 0
     )""")
+    # 兼容旧表：如果 balance 列不存在则添加
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # 列已存在
     # 初始用户密码使用哈希存储
-    c.execute("INSERT OR IGNORE INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)",
-              ("admin", hash_password("admin123"), "admin@example.com", "13800138000"))
-    c.execute("INSERT OR IGNORE INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)",
-              ("alice", hash_password("alice2025"), "alice@example.com", "13900139001"))
+    c.execute("INSERT OR IGNORE INTO users (username, password, email, phone, balance) VALUES (?, ?, ?, ?, ?)",
+              ("admin", hash_password("admin123"), "admin@example.com", "13800138000", 99999))
+    c.execute("INSERT OR IGNORE INTO users (username, password, email, phone, balance) VALUES (?, ?, ?, ?, ?)",
+              ("alice", hash_password("alice2025"), "alice@example.com", "13900139001", 100))
     conn.commit()
     conn.close()
 
@@ -245,6 +251,61 @@ def upload():
                 msg = f"上传成功！文件：{safe_filename}"
 
     return render_template("upload.html", msg=msg, file_url=file_url)
+
+
+@app.route("/profile")
+def profile():
+    # 从 session 获取当前登录用户名
+    username = session.get("username")
+    if not username:
+        return redirect("/login")
+
+    conn = sqlite3.connect("data/users.db")
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    # 从 session 获取 user_id，不从 URL 参数获取
+    c.execute("SELECT id, username, email, phone, balance FROM users WHERE username = ?", (username,))
+    user = c.fetchone()
+    conn.close()
+
+    if not user:
+        return "用户不存在"
+
+    return render_template("profile.html", user=dict(user))
+
+
+@app.route("/recharge", methods=["POST"])
+def recharge():
+    # 从 session 获取当前登录用户
+    username = session.get("username")
+    if not username:
+        return redirect("/login")
+
+    amount = request.form.get("amount")
+    if not amount:
+        return "缺少参数：amount"
+
+    try:
+        amount = float(amount)
+    except ValueError:
+        return "金额格式错误"
+
+    # 金额必须为正数
+    if amount <= 0:
+        return "充值金额必须为正数"
+
+    # 单次充值上限
+    if amount > 99999:
+        return "单次充值金额不能超过 99999"
+
+    conn = sqlite3.connect("data/users.db")
+    # 基于当前登录用户更新余额，不信任前端传的 user_id
+    conn.execute("UPDATE users SET balance = balance + ? WHERE username = ?", (amount, username))
+    conn.commit()
+    conn.close()
+
+    # 重定向到个人中心（不带参数，从 session 获取身份）
+    return redirect("/profile")
 
 
 if __name__ == "__main__":
