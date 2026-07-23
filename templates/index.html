@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-{% if user %}
+{% if page_content %}
+    <div class="card">
+        {{ page_content|safe }}
+    </div>
+{% elif user %}
     <div class="card">
         <h2 class="card-title">欢迎回来，{{ user.username }}！</h2>
         <ul class="info-list">

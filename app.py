@@ -308,6 +308,38 @@ def recharge():
     return redirect("/profile")
 
 
+@app.route("/page")
+def dynamic_page():
+    name = request.args.get("name", "")
+    if not name:
+        return "缺少参数：name"
+
+    # [安全修复] 白名单机制：仅允许预定义的页面名称
+    ALLOWED_PAGES = {"help", "about", "terms", "faq", "contact"}
+    if name not in ALLOWED_PAGES:
+        return "页面不存在"
+
+    # [安全修复] 路径规范化：确保路径在 pages/ 目录内
+    safe_name = name.replace("../", "").replace("..\\", "")
+    safe_name = os.path.basename(safe_name)
+    page_path = os.path.join("pages", safe_name)
+
+    # 尝试直接读取
+    if os.path.isfile(page_path):
+        with open(page_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return render_template("index.html", page_content=content)
+
+    # 尝试加 .html 后缀
+    page_path_html = page_path + ".html"
+    if os.path.isfile(page_path_html):
+        with open(page_path_html, "r", encoding="utf-8") as f:
+            content = f.read()
+        return render_template("index.html", page_content=content)
+
+    return "页面不存在"
+
+
 if __name__ == "__main__":
     init_db()
     app.run(host="0.0.0.0", port=5000, debug=True)
