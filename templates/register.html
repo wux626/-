@@ -10,6 +10,7 @@
         <p style="text-align:center;margin-top:16px;"><a href="/login" class="btn btn-primary">前往登录</a></p>
     {% else %}
     <form method="post" action="/register" class="form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="form-group">
             <label for="username">用户名</label>
             <input type="text" id="username" name="username" class="form-input" placeholder="请输入用户名" required>

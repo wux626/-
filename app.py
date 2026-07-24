@@ -5,6 +5,9 @@ import re
 import hashlib
 
 import uuid
+import secrets
+from markupsafe import escape as html_escape
+from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = "dev-key-2025-secure"
@@ -98,6 +101,63 @@ def sanitize_input(text, max_len=100):
     return text[:max_len]
 
 
+# ── CSRF 防护 ──
+def generate_csrf_token():
+    """生成并存储 CSRF Token 到 session"""
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(32)
+    return session["csrf_token"]
+
+
+def validate_csrf(f):
+    """CSRF Token 校验装饰器：验证请求中的 Token 是否与 session 中的一致"""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return f(*args, **kwargs)
+        # 从表单或请求头获取 CSRF Token
+        token = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token")
+        stored = session.get("csrf_token")
+        if not token or not stored or not secrets.compare_digest(token, stored):
+            return "CSRF Token 无效或缺失 — 请刷新页面重试", 403
+        return f(*args, **kwargs)
+    return wrapper
+
+
+# ── Referer/Origin 来源校验 ──
+def validate_referer():
+    """检查请求来源是否为本站点，拒绝跨站请求"""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return True
+    origin = request.headers.get("Origin")
+    referer = request.headers.get("Referer")
+    allowed_host = request.host
+    # 允许同源请求（无Origin/Referer的内部请求）
+    if not origin and not referer:
+        return True
+    # 校验 Origin
+    if origin:
+        from urllib.parse import urlparse
+        try:
+            o = urlparse(origin)
+            if o.hostname == allowed_host.split(":")[0] or o.hostname in ("localhost", "127.0.0.1"):
+                return True
+        except:
+            pass
+        return False
+    # 校验 Referer
+    if referer:
+        from urllib.parse import urlparse
+        try:
+            r = urlparse(referer)
+            if r.hostname == allowed_host.split(":")[0] or r.hostname in ("localhost", "127.0.0.1"):
+                return True
+        except:
+            pass
+        return False
+    return True
+
+
 def init_db():
     os.makedirs("data", exist_ok=True)
     conn = sqlite3.connect("data/users.db")
@@ -124,6 +184,19 @@ def init_db():
     conn.close()
 
 
+@app.route("/csrf-token")
+def csrf_token():
+    """返回 CSRF Token，供前端使用"""
+    token = generate_csrf_token()
+    return {"csrf_token": token}
+
+
+# 全局注入 CSRF Token 到所有模板
+@app.context_processor
+def inject_csrf_token():
+    return dict(csrf_token=generate_csrf_token())
+
+
 @app.route("/")
 def index():
     username = session.get("username")
@@ -145,6 +218,8 @@ def index():
 def login():
     error = None
     if request.method == "POST":
+        if not validate_referer():
+            return "请求来源不合法", 403
         username = sanitize_input(request.form.get("username", ""))
         password = request.form.get("password", "")
 
@@ -174,9 +249,12 @@ def logout():
 
 
 @app.route("/register", methods=["GET", "POST"])
+@validate_csrf
 def register():
     msg = None
     if request.method == "POST":
+        if not validate_referer():
+            return "请求来源不合法", 403
         username = sanitize_input(request.form.get("username", ""), 30)
         password = request.form.get("password", "")
         email = sanitize_input(request.form.get("email", ""), 50)
@@ -228,6 +306,7 @@ def search():
 
 
 @app.route("/upload", methods=["GET", "POST"])
+@validate_csrf
 def upload():
     if "username" not in session:
         return redirect("/login")
@@ -236,6 +315,8 @@ def upload():
     file_url = None
 
     if request.method == "POST":
+        if not validate_referer():
+            return "请求来源不合法", 403
         f = request.files.get("file")
         if not f or not f.filename:
             msg = "上传失败：未选择文件"
@@ -275,7 +356,10 @@ def profile():
 
 
 @app.route("/recharge", methods=["POST"])
+@validate_csrf
 def recharge():
+    if not validate_referer():
+        return "请求来源不合法", 403
     # 从 session 获取当前登录用户
     username = session.get("username")
     if not username:
@@ -308,6 +392,32 @@ def recharge():
     return redirect("/profile")
 
 
+@app.route("/change-password", methods=["POST"])
+@validate_csrf
+def change_password():
+    if not validate_referer():
+        return "请求来源不合法", 403
+    # 只要 session 中有登录状态即可操作
+    if "username" not in session:
+        return redirect("/login")
+
+    username = request.form.get("username", "")
+    new_password = request.form.get("new_password", "")
+
+    if not username or not new_password:
+        return "缺少参数：username 或 new_password"
+
+    # 直接更新密码字段，不验证原密码
+    conn = sqlite3.connect("data/users.db")
+    c = conn.cursor()
+    c.execute("UPDATE users SET password = ? WHERE username = ?",
+              (hash_password(new_password), username))
+    conn.commit()
+    conn.close()
+
+    return redirect("/profile")
+
+
 @app.route("/page")
 def dynamic_page():
     name = request.args.get("name", "")
@@ -324,18 +434,26 @@ def dynamic_page():
     safe_name = os.path.basename(safe_name)
     page_path = os.path.join("pages", safe_name)
 
-    # 尝试直接读取
+    # 读取内容并进行 XSS 过滤
     if os.path.isfile(page_path):
         with open(page_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        return render_template("index.html", page_content=content)
+            raw = f.read()
+        # 过滤危险的 HTML 标签和事件处理器
+        safe_content = re.sub(r'<script[^>]*>.*?</script>', '', raw, flags=re.DOTALL | re.IGNORECASE)
+        safe_content = re.sub(r'\bon\w+\s*=\s*["\'][^"\']*["\']', '', safe_content, flags=re.IGNORECASE)
+        safe_content = re.sub(r'javascript\s*:', '', safe_content, flags=re.IGNORECASE)
+        return render_template("index.html", page_content=safe_content)
 
     # 尝试加 .html 后缀
     page_path_html = page_path + ".html"
     if os.path.isfile(page_path_html):
         with open(page_path_html, "r", encoding="utf-8") as f:
-            content = f.read()
-        return render_template("index.html", page_content=content)
+            raw = f.read()
+        # [XSS修复] 过滤危险脚本标签和事件处理器
+        safe_content = re.sub(r'<script[^>]*>.*?</script>', '', raw, flags=re.DOTALL | re.IGNORECASE)
+        safe_content = re.sub(r'\bon\w+\s*=\s*["\'][^"\']*["\']', '', safe_content, flags=re.IGNORECASE)
+        safe_content = re.sub(r'javascript\s*:', '', safe_content, flags=re.IGNORECASE)
+        return render_template("index.html", page_content=safe_content)
 
     return "页面不存在"
 
