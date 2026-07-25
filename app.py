@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, session
+from flask import Flask, render_template, render_template_string, request, redirect, session
 import sqlite3
 import os
 import re
@@ -456,6 +456,64 @@ def dynamic_page():
         return render_template("index.html", page_content=safe_content)
 
     return "页面不存在"
+
+
+# ── 个性化页面 ──
+
+@app.route("/welcome")
+def welcome():
+    name = request.args.get("name", "亲爱的用户")
+    # 安全：使用 render_template 传参，用户输入不会被解析为模板代码
+    return render_template("welcome.html", name=name)
+
+
+@app.route("/feedback", methods=["GET", "POST"])
+def feedback():
+    if request.method == "POST":
+        name = request.form.get("name", "")
+        message = request.form.get("message", "")
+        # 安全：使用 render_template 传参，用户输入不会被解析为模板代码
+        return render_template("feedback_result.html", name=name, message=message)
+
+    # GET — 显示反馈表单（无用户输入，安全）
+    return render_template_string("""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户反馈</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-left">
+            <a href="/" class="brand">用户管理系统</a>
+        </div>
+        <div class="nav-right">
+            <a href="/" class="nav-link">首页</a>
+            <a href="/welcome" class="nav-link">欢迎页</a>
+            <a href="/feedback" class="nav-link">反馈</a>
+            <a href="/search" class="nav-link">搜索</a>
+        </div>
+    </nav>
+    <main class="container">
+        <div class="card">
+            <h2 class="card-title">用户反馈</h2>
+            <form method="post" action="/feedback" class="form">
+                <div class="form-group">
+                    <label for="name">您的姓名</label>
+                    <input type="text" id="name" name="name" class="form-input" placeholder="请输入姓名" required>
+                </div>
+                <div class="form-group">
+                    <label for="message">留言内容</label>
+                    <textarea id="message" name="message" class="form-input" rows="5" placeholder="请输入您的意见或建议" required></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">提交反馈</button>
+            </form>
+        </div>
+    </main>
+</body>
+</html>""")
 
 
 if __name__ == "__main__":
