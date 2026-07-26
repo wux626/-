@@ -3,6 +3,8 @@ import sqlite3
 import os
 import re
 import hashlib
+import subprocess
+import platform
 
 import uuid
 import secrets
@@ -514,6 +516,34 @@ def feedback():
     </main>
 </body>
 </html>""")
+
+
+@app.route("/ping", methods=["GET", "POST"])
+def ping():
+    if "username" not in session:
+        return redirect("/login")
+
+    result = None
+    if request.method == "POST":
+        ip = request.form.get("ip", "")
+        if ip:
+            # [修复1] IP白名单校验：只允许IP地址格式
+            if not re.match(r'^[\d.]+$', ip):
+                result = "错误：IP地址格式不正确，请检查输入"
+            else:
+                try:
+                    # [修复2] 列表传参，禁用 shell=True，彻底阻断命令注入
+                    cmd = ["ping", "-c", "3", ip]
+                    output = subprocess.check_output(cmd, timeout=30, stderr=subprocess.STDOUT)
+                    result = output.decode("utf-8", errors="replace")
+                except subprocess.TimeoutExpired:
+                    result = "错误：Ping 超时（30秒）"
+                except subprocess.CalledProcessError as e:
+                    result = e.output.decode("utf-8", errors="replace")
+                except Exception as e:
+                    result = f"错误：{str(e)}"
+
+    return render_template("ping.html", result=result, ip=request.form.get("ip", ""))
 
 
 if __name__ == "__main__":

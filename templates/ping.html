@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2 class="card-title">Ping 网络诊断</h2>
+    <form method="post" action="/ping" class="form">
+        <div class="form-group">
+            <label for="ip">IP 地址或域名</label>
+            <input type="text" id="ip" name="ip" class="form-input" placeholder="例如：8.8.8.8 或 baidu.com" value="{{ ip }}" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Ping</button>
+    </form>
+</div>
+
+{% if result %}
+<div class="card">
+    <h2 class="card-title">执行结果</h2>
+    <pre style="background:#1a1a2e;color:#00ff00;padding:16px;border-radius:8px;font-size:13px;font-family:Consolas,monospace;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:500px;overflow-y:auto;">{{ result }}</pre>
+</div>
+{% endif %}
+{% endblock %}
